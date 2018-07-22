@@ -5,33 +5,33 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.*;
 
-public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
-    private final Supplier<T> supplier;
+public class OptionalCapabilityInstance<T, V, U extends IAspect<?>> {
+    private final Supplier<V> supplier;
     private final Capability<T> capability;
     private final U aspect;
+    
+    // Evaluation cache, only ever execute the supplier once
+    private boolean evaluated;
+    private V value;
 
-    private static final OptionalCapabilityInstance<Void, IAspect.None> EMPTY = new OptionalCapabilityInstance<>(null, IAspect.None.NONE, null);
-
-    @SuppressWarnings("unchecked")
-    private static <T, U extends IAspect<?>> OptionalCapabilityInstance<T, U> empty() {
-        return (OptionalCapabilityInstance<T, U>)EMPTY;
-    }
-
-    private OptionalCapabilityInstance(Capability<T> capability, U aspect, Supplier<T> instanceSupplier)
+    private OptionalCapabilityInstance(Capability<T> capability, U aspect, Supplier<V> instanceSupplier)
     {
         this.capability = capability;
         this.aspect = aspect;
         this.supplier = instanceSupplier;
     }
 
-    public static <T, U extends IAspect<?>> OptionalCapabilityInstance<T, U> of(final Capability<T> cap, final U aspect, final Supplier<T> instanceSupplier) {
+    public static <T, U extends IAspect<?>> OptionalCapabilityInstance<T, T, U> of(final Capability<T> cap, final U aspect, final Supplier<T> instanceSupplier) {
         return new OptionalCapabilityInstance<>(cap, aspect, instanceSupplier);
     }
 
-    private T getValue()
+    private V getValue()
     {
-        if (supplier != null) return supplier.get();
-        return null;
+        if (evaluated) return value;
+        
+        evaluated = true;
+        value = supplier != null ? supplier.get() : null;
+        return value;
     }
 
     /**
@@ -43,7 +43,7 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      *
      * @see Optional#isPresent()
      */
-    public T get() {
+    public V get() {
         if (getValue() == null) {
             throw new NoSuchElementException("No value present");
         }
@@ -67,7 +67,7 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * @throws NullPointerException if mod object is present and {@code consumer} is
      * null
      */
-    public void ifPresent(Consumer<? super T> consumer) {
+    public void ifPresent(Consumer<? super V> consumer) {
         if (getValue() != null)
             consumer.accept(getValue());
     }
@@ -83,12 +83,9 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * otherwise an empty {@code OptionalMod}
      * @throws NullPointerException if the predicate is null
      */
-    public OptionalCapabilityInstance<T, U> filter(Predicate<? super T> predicate) {
+    public OptionalCapabilityInstance<T, V, U> filter(Predicate<? super V> predicate) {
         Objects.requireNonNull(predicate);
-        if (!isPresent())
-            return this;
-        else
-            return predicate.test(getValue()) ? this : empty();
+        return new OptionalCapabilityInstance<T, V, U>(capability, aspect, () -> predicate.test(getValue()) ? getValue() : null);
     }
 
     /**
@@ -106,13 +103,9 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * otherwise an empty {@code Optional}
      * @throws NullPointerException if the mapping function is null
      */
-    public<U> Optional<U> map(Function<? super T, ? extends U> mapper) {
+    public <R> OptionalCapabilityInstance<T, R, U> map(Function<? super V, ? extends R> mapper) {
         Objects.requireNonNull(mapper);
-        if (!isPresent())
-            return Optional.empty();
-        else {
-            return Optional.ofNullable(mapper.apply(getValue()));
-        }
+        return new OptionalCapabilityInstance<T, R, U>(this.capability, this.aspect, () -> mapper.apply(this.supplier.get()));
     }
 
     /**
@@ -132,13 +125,9 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * @throws NullPointerException if the mapping function is null or returns
      * a null result
      */
-    public<U> Optional<U> flatMap(Function<? super T, Optional<U>> mapper) {
+    public <R> OptionalCapabilityInstance<T, R, U> flatMap(Function<? super V, Optional<R>> mapper) {
         Objects.requireNonNull(mapper);
-        if (!isPresent())
-            return Optional.empty();
-        else {
-            return Objects.requireNonNull(mapper.apply(getValue()));
-        }
+        return new OptionalCapabilityInstance<T, R, U>(capability, aspect, () -> mapper.apply(this.supplier.get()).orElse(null));
     }
 
     /**
@@ -148,7 +137,7 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * be null
      * @return the mod object, if present, otherwise {@code other}
      */
-    public T orElse(T other) {
+    public V orElse(V other) {
         return getValue() != null ? getValue() : other;
     }
 
@@ -162,7 +151,7 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * @throws NullPointerException if mod object is not present and {@code other} is
      * null
      */
-    public T orElseGet(Supplier<? extends T> other) {
+    public V orElseGet(Supplier<? extends V> other) {
         return getValue() != null ? getValue() : other.get();
     }
 
@@ -182,7 +171,7 @@ public class OptionalCapabilityInstance<T, U extends IAspect<?>> {
      * @throws NullPointerException if no mod object is present and
      * {@code exceptionSupplier} is null
      */
-    public <X extends Throwable> T orElseThrow(Supplier<? extends X> exceptionSupplier) throws X {
+    public <X extends Throwable> V orElseThrow(Supplier<? extends X> exceptionSupplier) throws X {
         if (getValue() != null) {
             return getValue();
         } else {
